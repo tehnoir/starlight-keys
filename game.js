@@ -223,7 +223,7 @@
     G = {
       song, tiles, pos: tiles[0].s - HIT_ROW, started: false, score: 0, hits: 0, nextIdx: 0,
       state: 'play', t: 0, relaxed: store.data.mode === 'relaxed', mult: store.data.speed,
-      particles: [], texts: [], flashes: [], holding: new Set(), winAt: 0, endAt: 0, resumeT: 0,
+      particles: [], texts: [], flashes: [], fx: [], holding: new Set(), winAt: 0, endAt: 0, resumeT: 0,
       failTile: null, failTarget: 0,
     };
     showGameScreen();
@@ -263,7 +263,7 @@
     G = {
       song, tiles, pos: rowsAt(0) - HIT_ROW, started: false, score: 0, hits: 0, nextIdx: 0,
       state: 'play', t: 0, relaxed: store.data.mode === 'relaxed', mult: 1,
-      particles: [], texts: [], flashes: [], holding: new Set(), winAt: 0, endAt: 0, resumeT: 0,
+      particles: [], texts: [], flashes: [], fx: [], holding: new Set(), winAt: 0, endAt: 0, resumeT: 0,
       failTile: null, failTarget: 0,
       music: { rowsAt, mt: 0, ready: false, requested: false, ended: false, error: '' },
     };
@@ -405,29 +405,54 @@
     }
     const c = tileRect(t);
     const cy = t.hold ? clamp(H - t.off * rowH, c.y, c.y + c.h) : c.y + c.h / 2;
-    burst(c.x + c.w / 2, cy, G.song.hue, t.hold ? 10 : 14);
+    burst(laneCenterX(t.lane, cy), cy, LANE_HUES[t.lane], t.hold ? 10 : 14, t.lane);
   }
 
-  function burst(x, y, hue, n) {
-    for (let i = 0; i < n; i++) {
-      const a = Math.random() * Math.PI * 2, v = 80 + Math.random() * 260;
-      G.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, life: 0.6 + Math.random() * 0.4,
-                         hue: hue + (Math.random() * 60 - 30), size: 2 + Math.random() * 4, star: Math.random() < 0.3 });
+  // Tap effects: a light beam up the lane, an expanding ring, and twinkling glitter.
+  function burst(x, y, hue, n, lane) {
+    G.fx.push({ kind: 'ring', x, y, hue, life: 0.45, max: 0.45 });
+    if (lane != null) G.fx.push({ kind: 'beam', lane, hue, life: 0.35, max: 0.35 });
+    for (let i = 0; i < n * 2; i++) {
+      const a = Math.random() * Math.PI * 2, v = 60 + Math.random() * 340;
+      const life = 0.5 + Math.random() * 0.7;
+      G.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 120, life, max: life, grav: 260, drag: 2.2,
+                         hue: hue + (Math.random() * 50 - 25), size: 1.5 + Math.random() * 3.5,
+                         kind: Math.random() < 0.4 ? 'glint' : 'dot', ph: Math.random() * 6.28 });
     }
   }
 
   function confetti() {
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < 140; i++) {
+      const life = 2.5 + Math.random();
       G.particles.push({ x: Math.random() * W, y: -20 - Math.random() * H * 0.5, vx: (Math.random() - 0.5) * 120,
-                         vy: 120 + Math.random() * 200, life: 2.5 + Math.random(), hue: Math.random() * 360,
-                         size: 4 + Math.random() * 5, star: Math.random() < 0.5, grav: 40 });
+                         vy: 120 + Math.random() * 200, life, max: life, hue: Math.random() * 360,
+                         size: 4 + Math.random() * 5, kind: Math.random() < 0.5 ? 'star' : 'glint', grav: 40, ph: Math.random() * 6.28 });
     }
+  }
+
+  // ---------- Perspective: lanes narrow toward the top of the screen ----------
+  const PERSP_TOP = 0.58; // lane width at the top of the screen, relative to the bottom
+  const LANE_HUES = [326, 188, 42, 268]; // pink, aqua, gold, violet
+
+  function depth(y) { return PERSP_TOP + (1 - PERSP_TOP) * clamp(y / H, -0.2, 1.3); }
+  function laneEdgeX(edge, y) {
+    const cx = fieldX + fieldW / 2;
+    return cx + (fieldX + edge * laneW - cx) * depth(y);
+  }
+  function laneCenterX(lane, y) { return (laneEdgeX(lane, y) + laneEdgeX(lane + 1, y)) / 2; }
+  function screenToLane(x, y) {
+    const cx = fieldX + fieldW / 2;
+    const fx = cx + (x - cx) / depth(y);
+    if (fx < fieldX || fx >= fieldX + fieldW) return -1;
+    return clamp(Math.floor((fx - fieldX) / laneW), 0, LANES - 1);
   }
 
   function tileRect(t) {
     const yBottom = H - (t.s - G.pos) * rowH;
     const h = t.len * rowH;
-    return { x: fieldX + t.lane * laneW, y: yBottom - h, w: laneW, h };
+    const mid = yBottom - h / 2;
+    const x = laneEdgeX(t.lane, mid);
+    return { x, y: yBottom - h, w: laneEdgeX(t.lane + 1, mid) - x, h };
   }
 
   // ---------- Input ----------
@@ -445,8 +470,8 @@
       return;
     }
     const x = e.clientX, y = e.clientY;
-    if (x < fieldX || x >= fieldX + fieldW) return;
-    const lane = clamp(Math.floor((x - fieldX) / laneW), 0, LANES - 1);
+    const lane = screenToLane(x, y);
+    if (lane < 0) return;
     const row = G.pos + (H - y) / rowH;
     const tiles = G.tiles;
     let target = null;
@@ -565,8 +590,11 @@
     for (const p of G.particles) {
       p.x += p.vx * dt; p.y += p.vy * dt;
       p.vy += (p.grav != null ? p.grav : 500) * dt;
+      if (p.drag) { const k = Math.max(0, 1 - p.drag * dt); p.vx *= k; p.vy *= k; }
       p.life -= dt;
     }
+    for (const f of G.fx) f.life -= dt;
+    G.fx = G.fx.filter((f) => f.life > 0);
     G.particles = G.particles.filter((p) => p.life > 0);
     for (const f of G.texts) { f.y -= 60 * dt; f.life -= dt; }
     G.texts = G.texts.filter((f) => f.life > 0);
@@ -577,11 +605,19 @@
   // ---------- Draw ----------
   function drawSky() {
     const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#140f33');
-    g.addColorStop(0.6, '#2b1a5c');
-    g.addColorStop(1, '#4a2378');
+    g.addColorStop(0, '#0d0926');
+    g.addColorStop(0.55, '#24164f');
+    g.addColorStop(1, '#45206f');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+    // soft nebula glows
+    for (const [nx, ny, nr, col] of [[0.2, 0.25, 0.55, 'rgba(255,80,170,0.10)'], [0.85, 0.6, 0.6, 'rgba(90,120,255,0.10)']]) {
+      const rg = ctx.createRadialGradient(W * nx, H * ny, 0, W * nx, H * ny, Math.max(W, H) * nr);
+      rg.addColorStop(0, col);
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rg;
+      ctx.fillRect(0, 0, W, H);
+    }
     const drift = G ? G.pos * rowH * 0.12 : clock * 8;
     ctx.fillStyle = '#fff';
     for (const s of sky) {
@@ -593,105 +629,233 @@
     ctx.globalAlpha = 1;
   }
 
+  function lanePath(e0, e1, yTop, yBot) {
+    ctx.beginPath();
+    ctx.moveTo(laneEdgeX(e0, yTop), yTop);
+    ctx.lineTo(laneEdgeX(e1, yTop), yTop);
+    ctx.lineTo(laneEdgeX(e1, yBot), yBot);
+    ctx.lineTo(laneEdgeX(e0, yBot), yBot);
+    ctx.closePath();
+  }
+
   function drawField() {
-    if (W > H) {
-      ctx.fillStyle = 'rgba(8, 5, 25, 0.35)';
-      ctx.fillRect(fieldX, 0, fieldW, H);
+    // dark glass floor
+    const fg = ctx.createLinearGradient(0, 0, 0, H);
+    fg.addColorStop(0, 'rgba(6,3,20,0.15)');
+    fg.addColorStop(1, 'rgba(6,3,20,0.55)');
+    ctx.fillStyle = fg;
+    lanePath(0, LANES, 0, H);
+    ctx.fill();
+    // a faint wash of each lane's colour, brighter toward the player
+    for (let i = 0; i < LANES; i++) {
+      const lg = ctx.createLinearGradient(0, 0, 0, H);
+      lg.addColorStop(0, `hsla(${LANE_HUES[i]}, 90%, 60%, 0)`);
+      lg.addColorStop(1, `hsla(${LANE_HUES[i]}, 90%, 60%, 0.10)`);
+      ctx.fillStyle = lg;
+      lanePath(i, i + 1, 0, H);
+      ctx.fill();
     }
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    // floor lines that scroll with the tiles, for a sense of speed and depth
     ctx.lineWidth = 1;
-    for (let i = W > H ? 0 : 1; i <= (W > H ? LANES : LANES - 1); i++) {
-      const x = Math.round(fieldX + i * laneW) + 0.5;
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    for (let r = Math.floor(G.pos) - 1; r <= G.pos + ROWS + 1; r++) {
+      const y = H - (r + 0.5 - G.pos) * rowH;
+      if (y < 0 || y > H) continue;
+      ctx.strokeStyle = `rgba(190,170,255,${0.03 + 0.12 * (y / H)})`;
+      ctx.beginPath();
+      ctx.moveTo(laneEdgeX(0, y), y);
+      ctx.lineTo(laneEdgeX(LANES, y), y);
+      ctx.stroke();
     }
+    // lane dividers
+    for (let i = 1; i < LANES; i++) {
+      const g = ctx.createLinearGradient(0, 0, 0, H);
+      g.addColorStop(0, 'rgba(255,255,255,0.02)');
+      g.addColorStop(1, 'rgba(255,255,255,0.22)');
+      ctx.strokeStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(laneEdgeX(i, 0), 0);
+      ctx.lineTo(laneEdgeX(i, H), H);
+      ctx.stroke();
+    }
+    // glowing outer rails
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const [e, hue] of [[0, LANE_HUES[0]], [LANES, LANE_HUES[3]]]) {
+      for (const [lw, a] of [[10, 0.08], [4, 0.25], [1.5, 0.9]]) {
+        const g = ctx.createLinearGradient(0, 0, 0, H);
+        g.addColorStop(0, `hsla(${hue}, 100%, 70%, 0)`);
+        g.addColorStop(1, `hsla(${hue}, 100%, 70%, ${a})`);
+        ctx.strokeStyle = g;
+        ctx.lineWidth = lw;
+        ctx.beginPath();
+        ctx.moveTo(laneEdgeX(e, 0), 0);
+        ctx.lineTo(laneEdgeX(e, H), H);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Trapezoid tile outline with rounded corners, following the lane's perspective.
+  function tilePath(lane, yTop, yBot, inset, r) {
+    const p = inset / laneW;
+    const pts = [
+      [laneEdgeX(lane + p, yTop), yTop], [laneEdgeX(lane + 1 - p, yTop), yTop],
+      [laneEdgeX(lane + 1 - p, yBot), yBot], [laneEdgeX(lane + p, yBot), yBot],
+    ];
+    r = Math.max(0, Math.min(r, (yBot - yTop) / 2, (pts[1][0] - pts[0][0]) / 2));
+    ctx.beginPath();
+    ctx.moveTo((pts[3][0] + pts[0][0]) / 2, (pts[3][1] + pts[0][1]) / 2);
+    for (let i = 0; i < 4; i++) {
+      const a = pts[i], b = pts[(i + 1) % 4];
+      ctx.arcTo(a[0], a[1], b[0], b[1], r);
+    }
+    ctx.closePath();
+    return pts;
+  }
+
+  // A glossy glass slab: drop shadow, visible thickness, glow, colour body, sheen, streaks and a bright rim.
+  function drawGlassTile(lane, yTop, yBot, hue, opts = {}) {
+    const d = depth(yBot);
+    const thick = 13 * d;
+    const r = 18 * d;
+    const inset = 5;
+    const sat = opts.sat == null ? 95 : opts.sat;
+    ctx.save();
+    ctx.globalAlpha = opts.alpha == null ? 1 : opts.alpha;
+    // drop shadow on the floor
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    tilePath(lane, yTop + thick + 8, yBot + thick + 8, inset + 2, r);
+    ctx.fill();
+    // outer glow
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = `hsla(${hue}, 100%, 60%, 0.16)`;
+    tilePath(lane, yTop - 6, yBot + 6, inset - 6, r + 6);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // thickness (the slab's front face, seen from slightly above)
+    const side = ctx.createLinearGradient(0, yBot, 0, yBot + thick);
+    side.addColorStop(0, `hsl(${hue}, ${sat - 10}%, 30%)`);
+    side.addColorStop(1, `hsl(${hue}, ${sat - 20}%, 16%)`);
+    ctx.fillStyle = side;
+    tilePath(lane, yTop + thick, yBot + thick, inset, r);
+    ctx.fill();
+    // body
+    const pts = tilePath(lane, yTop, yBot, inset, r);
+    const body = ctx.createLinearGradient(0, yTop, 0, yBot);
+    body.addColorStop(0, `hsla(${hue}, ${sat}%, 80%, 0.97)`);
+    body.addColorStop(0.35, `hsla(${hue}, ${sat}%, 62%, 0.9)`);
+    body.addColorStop(1, `hsla(${hue + 10}, ${sat}%, 42%, 0.97)`);
+    ctx.fillStyle = body;
+    ctx.fill();
+    // reflections, clipped to the tile
+    ctx.save();
+    ctx.clip();
+    const left = Math.min(pts[0][0], pts[3][0]), right = Math.max(pts[1][0], pts[2][0]);
+    const w = right - left, h = yBot - yTop;
+    const sheenH = Math.min(h * 0.42, rowH * 0.45);
+    const sheen = ctx.createLinearGradient(0, yTop, 0, yTop + sheenH);
+    sheen.addColorStop(0, 'rgba(255,255,255,0.65)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(left, yTop, w, sheenH);
+    // diagonal glass streaks across the top part of the tile
+    const sh = Math.min(h, rowH * 1.1);
+    for (const [x0, x1, a] of [[0.12, 0.34, 0.22], [0.42, 0.5, 0.14]]) {
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.beginPath();
+      ctx.moveTo(left + w * x0, yTop + sh);
+      ctx.lineTo(left + w * x1, yTop + sh);
+      ctx.lineTo(left + w * (x1 + 0.38), yTop);
+      ctx.lineTo(left + w * (x0 + 0.38), yTop);
+      ctx.closePath();
+      ctx.fill();
+    }
+    // light caught along the bottom edge
+    const lip = ctx.createLinearGradient(0, yBot - 16, 0, yBot);
+    lip.addColorStop(0, `hsla(${hue}, 100%, 85%, 0)`);
+    lip.addColorStop(1, `hsla(${hue}, 100%, 85%, 0.55)`);
+    ctx.fillStyle = lip;
+    ctx.fillRect(left, yBot - 16, w, 16);
+    if (opts.fill) opts.fill(left, w);
+    ctx.restore();
+    // rim
+    tilePath(lane, yTop, yBot, inset, r);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = `hsla(${hue}, 100%, 92%, 0.9)`;
+    ctx.stroke();
+    ctx.restore();
   }
 
   function drawTile(t, isNext) {
-    const c = tileRect(t);
-    if (c.y > H || c.y + c.h < 0) return;
-    const pad = Math.max(3, laneW * 0.03);
-    const x = c.x + pad, y = c.y + pad, w = c.w - pad * 2, h = c.h - pad * 2;
-    const rad = Math.min(22, laneW * 0.14);
-    const hue = G.song.hue;
+    const yBot = H - (t.s - G.pos) * rowH;
+    const yTop = yBot - t.len * rowH;
+    if (yTop > H + 20 || yBot < -20) return;
+    const hue = LANE_HUES[t.lane];
 
     if (t.missed) {
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = '#fff';
-      rr(x, y, w, h, rad);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      tilePath(t.lane, yTop, yBot, 5, 16 * depth(yBot));
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
       return;
     }
     if (t.hit && !t.hold) {
-      const a = 1 - (G.t - t.hitAt) / 0.3;
+      // pop: the tile flashes white-hot and swells as it vanishes
+      const a = 1 - (G.t - t.hitAt) / 0.28;
       if (a <= 0) return;
-      const grow = (1 - a) * 8;
-      ctx.globalAlpha = a * 0.7;
-      ctx.fillStyle = `hsl(${hue}, 100%, 88%)`;
-      rr(x - grow, y - grow, w + grow * 2, h + grow * 2, rad);
+      const grow = (1 - a) * 14;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = a * 0.8;
+      ctx.fillStyle = `hsl(${hue}, 100%, 82%)`;
+      tilePath(t.lane, yTop - grow, yBot + grow, 5 - grow, 18);
       ctx.fill();
-      ctx.globalAlpha = 1;
+      ctx.restore();
       return;
     }
-
     const failing = G.failTile === t;
-    const g = ctx.createLinearGradient(0, y, 0, y + h);
-    if (failing) {
-      const blink = Math.floor(G.t * 6) % 2 === 0;
-      g.addColorStop(0, blink ? '#ff5d6c' : '#ff9aa4');
-      g.addColorStop(1, blink ? '#c9203a' : '#ff5d6c');
-    } else {
-      g.addColorStop(0, `hsl(${hue}, 90%, 66%)`);
-      g.addColorStop(1, `hsl(${hue + 28}, 85%, 48%)`);
-    }
-    // glow
-    ctx.globalAlpha = 0.25;
-    ctx.fillStyle = `hsl(${hue}, 100%, 70%)`;
-    rr(x - 4, y - 4, w + 8, h + 8, rad + 4);
-    ctx.fill();
-    ctx.globalAlpha = t.hold && t.holdDone ? 0.45 : 1;
-    ctx.fillStyle = g;
-    rr(x, y, w, h, rad);
-    ctx.fill();
-    // shine
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    rr(x + w * 0.1, y + 6, w * 0.8, Math.min(h * 0.22, 26), rad * 0.6);
-    ctx.fill();
+    const blink = failing && Math.floor(G.t * 6) % 2 === 0;
+    const holdFill = t.hold && t.hit && t.prog > 0
+      ? (left, w) => {
+        const fh = (yBot - yTop) * t.prog;
+        const fg = ctx.createLinearGradient(0, yBot - fh, 0, yBot);
+        fg.addColorStop(0, 'rgba(255,255,255,0.95)');
+        fg.addColorStop(1, `hsla(${hue}, 100%, 80%, 0.8)`);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = fg;
+        ctx.fillRect(left, yBot - fh, w, fh);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      : null;
+    drawGlassTile(t.lane, yTop, yBot, failing ? (blink ? 355 : 5) : hue, {
+      alpha: t.hold && t.holdDone ? 0.45 : 1,
+      fill: holdFill,
+    });
 
     if (t.hold) {
-      const cx = x + w / 2;
-      if (t.hit && t.prog > 0) {
-        const fh = h * t.prog;
-        const fg = ctx.createLinearGradient(0, y + h - fh, 0, y + h);
-        fg.addColorStop(0, 'rgba(255,255,255,0.95)');
-        fg.addColorStop(1, `hsla(${hue}, 100%, 85%, 0.9)`);
-        ctx.fillStyle = fg;
-        ctx.save();
-        rr(x, y, w, h, rad);
-        ctx.clip();
-        ctx.fillRect(x, y + h - fh, w, fh);
-        ctx.restore();
-      }
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      const xt = laneCenterX(t.lane, yTop + 26), xb = laneCenterX(t.lane, yBot - 30);
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)';
       ctx.lineWidth = 4;
       ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(cx, y + 26); ctx.lineTo(cx, y + h - 30); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(xt, yTop + 26); ctx.lineTo(xb, yBot - 30); ctx.stroke();
       ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(cx, y + h - 30, Math.min(14, w * 0.12), 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(xb, yBot - 30, Math.min(14, laneW * 0.12) * depth(yBot), 0, Math.PI * 2); ctx.fill();
     }
-    ctx.globalAlpha = 1;
-
     if (!G.started && t === G.tiles[0] && !G.music) {
       ctx.fillStyle = '#fff';
-      ctx.font = `800 ${Math.round(Math.min(w * 0.28, 44))}px ui-rounded, system-ui, sans-serif`;
+      ctx.font = `800 ${Math.round(Math.min(laneW * 0.26, 44))}px ui-rounded, system-ui, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('TAP', x + w / 2, y + Math.min(h / 2, 70));
+      ctx.shadowColor = 'rgba(0,0,0,0.4)'; ctx.shadowBlur = 6;
+      const ty = yTop + Math.min((yBot - yTop) / 2, 70);
+      ctx.fillText('TAP', laneCenterX(t.lane, ty), ty);
+      ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
     }
     if (isNext && G.relaxed && G.started && !t.hit) {
       const p = 0.5 + 0.5 * Math.sin(G.t * 6);
-      ctx.strokeStyle = `rgba(255,255,255,${0.35 + p * 0.5})`;
+      tilePath(t.lane, yTop, yBot, 3, 18 * depth(yBot));
+      ctx.strokeStyle = `rgba(255,255,255,${0.35 + p * 0.55})`;
       ctx.lineWidth = 4;
-      rr(x, y, w, h, rad);
       ctx.stroke();
     }
   }
@@ -699,31 +863,31 @@
   // Glowing line showing where to tap; key letters appear on it when playing with a keyboard.
   function drawTapLine() {
     const y = H - HIT_ROW * rowH;
-    const glow = ctx.createLinearGradient(0, y - 26, 0, y + 26);
-    glow.addColorStop(0, 'rgba(255,111,181,0)');
-    glow.addColorStop(0.5, 'rgba(255,111,181,0.28)');
-    glow.addColorStop(1, 'rgba(255,111,181,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(fieldX, y - 26, fieldW, 52);
+    const x0 = laneEdgeX(0, y), x1 = laneEdgeX(LANES, y);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < LANES; i++) {
-      const k = keyGlow[i];
-      if (k > 0) {
-        ctx.globalAlpha = k / 0.15 * 0.35;
-        ctx.fillStyle = '#fff';
-        rr(fieldX + i * laneW + 6, y - 30, laneW - 12, 60, 18);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
+      const hue = LANE_HUES[i];
+      const glow = ctx.createLinearGradient(0, y - 30, 0, y + 30);
+      glow.addColorStop(0, `hsla(${hue}, 100%, 60%, 0)`);
+      glow.addColorStop(0.5, `hsla(${hue}, 100%, 60%, ${0.22 + (keyGlow[i] / 0.15) * 0.5})`);
+      glow.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
+      ctx.fillStyle = glow;
+      lanePath(i, i + 1, y - 30, y + 30);
+      ctx.fill();
     }
-    const lg = ctx.createLinearGradient(fieldX, 0, fieldX + fieldW, 0);
-    lg.addColorStop(0, '#ff6fb5'); lg.addColorStop(0.5, '#ffd65a'); lg.addColorStop(1, '#7b6cff');
+    const lg = ctx.createLinearGradient(x0, 0, x1, 0);
+    LANE_HUES.forEach((h, i) => lg.addColorStop((i + 0.5) / LANES, `hsl(${h}, 100%, 72%)`));
     ctx.fillStyle = lg;
-    ctx.fillRect(fieldX, y - 2, fieldW, 4);
+    ctx.fillRect(x0, y - 2, x1 - x0, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    ctx.fillRect(x0, y - 0.75, x1 - x0, 1.5);
+    ctx.restore();
     if (usingKeys) {
       ctx.font = `800 ${Math.round(clamp(rowH * 0.16, 18, 30))}px ui-rounded, system-ui, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255,255,255,0.75)';
-      KEY_NAMES.forEach((k, i) => ctx.fillText(k, fieldX + (i + 0.5) * laneW, y + 12));
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      KEY_NAMES.forEach((k, i) => ctx.fillText(k, laneCenterX(i, y + 12), y + 12));
     }
   }
 
@@ -736,6 +900,58 @@
     }
     ctx.closePath();
     ctx.fill();
+  }
+
+  // Four-pointed twinkle.
+  function drawGlint(x, y, s) {
+    ctx.beginPath();
+    ctx.moveTo(x, y - s);
+    ctx.quadraticCurveTo(x, y, x + s, y);
+    ctx.quadraticCurveTo(x, y, x, y + s);
+    ctx.quadraticCurveTo(x, y, x - s, y);
+    ctx.quadraticCurveTo(x, y, x, y - s);
+    ctx.fill();
+  }
+
+  function drawEffects() {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const f of G.fx) {
+      const k = f.life / f.max;
+      if (f.kind === 'beam') {
+        const yb = H - HIT_ROW * rowH + 30;
+        const g = ctx.createLinearGradient(0, yb, 0, 0);
+        g.addColorStop(0, `hsla(${f.hue}, 100%, 75%, ${0.45 * k})`);
+        g.addColorStop(1, `hsla(${f.hue}, 100%, 75%, 0)`);
+        ctx.fillStyle = g;
+        lanePath(f.lane + 0.08, f.lane + 0.92, 0, yb);
+        ctx.fill();
+      } else if (f.kind === 'ring') {
+        const rad = (1 - k) * laneW * 0.9 + 10;
+        ctx.strokeStyle = `hsla(${f.hue}, 100%, 80%, ${k})`;
+        ctx.lineWidth = 2 + 6 * k;
+        ctx.beginPath();
+        ctx.ellipse(f.x, f.y, rad, rad * 0.55, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        if (k > 0.6) {
+          const core = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, laneW * 0.5);
+          core.addColorStop(0, `rgba(255,255,255,${(k - 0.6) * 2})`);
+          core.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = core;
+          ctx.fillRect(f.x - laneW * 0.5, f.y - laneW * 0.5, laneW, laneW);
+        }
+      }
+    }
+    for (const p of G.particles) {
+      const k = clamp(p.life / (p.max || 1), 0, 1);
+      const twinkle = 0.55 + 0.45 * Math.sin(G.t * 28 + p.ph);
+      ctx.globalAlpha = clamp(p.life * 2, 0, 1) * (p.kind === 'star' ? 1 : twinkle);
+      ctx.fillStyle = p.kind === 'glint' ? `hsl(${p.hue}, 100%, ${80 + 20 * twinkle}%)` : `hsl(${p.hue}, 100%, 72%)`;
+      if (p.kind === 'star') drawStar(p.x, p.y, p.size * 1.6);
+      else if (p.kind === 'glint') drawGlint(p.x, p.y, p.size * (2.2 + 1.5 * k));
+      else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); }
+    }
+    ctx.restore();
   }
 
   function drawHUD() {
@@ -796,17 +1012,11 @@
       const y = H - (f.row - G.pos + 1) * rowH;
       ctx.globalAlpha = clamp(f.life * 2, 0, 1) * (f.red ? 0.85 : 0.25);
       ctx.fillStyle = f.red ? '#ff4d6d' : '#fff';
-      rr(fieldX + f.lane * laneW + 4, y + 4, laneW - 8, rowH - 8, 18);
+      tilePath(f.lane, y + 4, y + rowH - 4, 4, 18 * depth(y + rowH));
       ctx.fill();
     }
     ctx.globalAlpha = 1;
-    for (const p of G.particles) {
-      ctx.globalAlpha = clamp(p.life, 0, 1);
-      ctx.fillStyle = `hsl(${p.hue}, 100%, 75%)`;
-      if (p.star) drawStar(p.x, p.y, p.size * 1.6);
-      else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill(); }
-    }
-    ctx.globalAlpha = 1;
+    drawEffects();
     ctx.font = `800 32px ui-rounded, system-ui, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const f of G.texts) {
@@ -1119,8 +1329,9 @@
       if (t.s > G.pos + ROWS) break;
       if (!t.hit && !t.missed && t.lane === lane) { row = t.s + 0.1; break; }
     }
+    const cy = H - (row - G.pos) * rowH;
     canvas.dispatchEvent(new PointerEvent('pointerdown', {
-      clientX: fieldX + (lane + 0.5) * laneW, clientY: H - (row - G.pos) * rowH, pointerId: 100 + lane, bubbles: true,
+      clientX: laneCenterX(lane, cy), clientY: cy, pointerId: 100 + lane, bubbles: true,
     }));
   });
   window.addEventListener('keyup', (e) => {

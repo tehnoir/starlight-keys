@@ -55,6 +55,17 @@
     background: linear-gradient(135deg, hsla(var(--h), 85%, 62%, 0.30), hsla(calc(var(--h) + 40), 80%, 50%, 0.18));
     border: 2px solid hsla(var(--h), 90%, 70%, 0.45);
     transition: transform 0.12s;
+    position: relative; overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.35), inset 0 -10px 24px rgba(0,0,0,0.18), 0 12px 28px rgba(0,0,0,0.35);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .song::before { /* glassy shine */
+    content: ''; position: absolute; inset: 0 0 55% 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,0.22), rgba(255,255,255,0));
+  }
+  .song::after {
+    content: ''; position: absolute; top: -40%; left: 18%; width: 16%; height: 180%; transform: rotate(28deg); pointer-events: none;
+    background: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.12), rgba(255,255,255,0));
   }
   .song:active { transform: scale(0.97); }
   .song .em { font-size: 40px; width: 54px; text-align: center; flex: none; }
