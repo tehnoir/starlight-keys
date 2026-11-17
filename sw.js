@@ -1,5 +1,5 @@
 // Offline support: serve from cache, refresh the cache in the background.
-const CACHE = 'starlight-keys-v4';
+const CACHE = 'starlight-keys-v5';
 const FILES = ['./', 'index.html', 'game.js', 'songs.js', 'music.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {

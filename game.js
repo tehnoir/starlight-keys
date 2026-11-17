@@ -743,40 +743,72 @@
     // body
     const pts = tilePath(lane, yTop, yBot, inset, r);
     const body = ctx.createLinearGradient(0, yTop, 0, yBot);
-    body.addColorStop(0, `hsla(${hue}, ${sat}%, 80%, 0.97)`);
-    body.addColorStop(0.35, `hsla(${hue}, ${sat}%, 62%, 0.9)`);
-    body.addColorStop(1, `hsla(${hue + 10}, ${sat}%, 42%, 0.97)`);
+    body.addColorStop(0, `hsl(${hue}, ${sat}%, 70%)`);
+    body.addColorStop(0.4, `hsl(${hue}, ${sat}%, 56%)`);
+    body.addColorStop(1, `hsl(${hue + 10}, ${sat}%, 44%)`);
     ctx.fillStyle = body;
     ctx.fill();
-    // reflections, clipped to the tile
+    // candy shading, clipped to the tile
     ctx.save();
     ctx.clip();
     const left = Math.min(pts[0][0], pts[3][0]), right = Math.max(pts[1][0], pts[2][0]);
     const w = right - left, h = yBot - yTop;
-    const sheenH = Math.min(h * 0.42, rowH * 0.45);
-    const sheen = ctx.createLinearGradient(0, yTop, 0, yTop + sheenH);
-    sheen.addColorStop(0, 'rgba(255,255,255,0.65)');
-    sheen.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = sheen;
-    ctx.fillRect(left, yTop, w, sheenH);
-    // diagonal glass streaks across the top part of the tile
-    const sh = Math.min(h, rowH * 1.1);
-    for (const [x0, x1, a] of [[0.12, 0.34, 0.22], [0.42, 0.5, 0.14]]) {
-      ctx.fillStyle = `rgba(255,255,255,${a})`;
-      ctx.beginPath();
-      ctx.moveTo(left + w * x0, yTop + sh);
-      ctx.lineTo(left + w * x1, yTop + sh);
-      ctx.lineTo(left + w * (x1 + 0.38), yTop);
-      ctx.lineTo(left + w * (x0 + 0.38), yTop);
-      ctx.closePath();
+    // curved top: darker toward the sides, lit across the middle
+    const curve = ctx.createLinearGradient(left, 0, right, 0);
+    curve.addColorStop(0, `hsla(${hue}, 80%, 18%, 0.55)`);
+    curve.addColorStop(0.22, `hsla(${hue}, 80%, 30%, 0.12)`);
+    curve.addColorStop(0.45, 'rgba(255,255,255,0.10)');
+    curve.addColorStop(0.75, `hsla(${hue}, 80%, 30%, 0.12)`);
+    curve.addColorStop(1, `hsla(${hue}, 80%, 18%, 0.6)`);
+    ctx.fillStyle = curve;
+    ctx.fillRect(left, yTop, w, h);
+    // rounded ends: shade the top and bottom edges too
+    const endH = Math.min(h * 0.3, 34);
+    const ends = ctx.createLinearGradient(0, yTop, 0, yBot);
+    ends.addColorStop(0, `hsla(${hue}, 80%, 20%, 0.35)`);
+    ends.addColorStop(endH / h, `hsla(${hue}, 80%, 20%, 0)`);
+    ends.addColorStop(1 - endH / h, `hsla(${hue}, 80%, 20%, 0)`);
+    ends.addColorStop(1, `hsla(${hue}, 80%, 15%, 0.45)`);
+    ctx.fillStyle = ends;
+    ctx.fillRect(left, yTop, w, h);
+    // glow from inside, like light through coloured sugar
+    const bx = left + w / 2, by = yBot - Math.min(h * 0.12, 18);
+    const bounce = ctx.createRadialGradient(bx, by, 0, bx, by, w * 0.6);
+    bounce.addColorStop(0, `hsla(${hue + 15}, 100%, 75%, 0.55)`);
+    bounce.addColorStop(1, `hsla(${hue + 15}, 100%, 75%, 0)`);
+    ctx.fillStyle = bounce;
+    ctx.fillRect(left, yTop, w, h);
+    // long gloss stripe down the left side
+    const sx = left + w * 0.17, sw = Math.max(3, w * 0.07);
+    const sTop = yTop + Math.min(h * 0.18, 30), sBot = yBot - Math.min(h * 0.2, 30);
+    if (sBot > sTop) {
+      const stripe = ctx.createLinearGradient(0, sTop, 0, sBot);
+      stripe.addColorStop(0, 'rgba(255,255,255,0.55)');
+      stripe.addColorStop(1, 'rgba(255,255,255,0.05)');
+      ctx.fillStyle = stripe;
+      rr(sx, sTop, sw, sBot - sTop, sw / 2);
       ctx.fill();
     }
-    // light caught along the bottom edge
-    const lip = ctx.createLinearGradient(0, yBot - 16, 0, yBot);
-    lip.addColorStop(0, `hsla(${hue}, 100%, 85%, 0)`);
-    lip.addColorStop(1, `hsla(${hue}, 100%, 85%, 0.55)`);
-    ctx.fillStyle = lip;
-    ctx.fillRect(left, yBot - 16, w, 16);
+    // soft, wide highlight near the top
+    const hx = left + w * 0.42, hy = yTop + Math.min(h * 0.16, 30);
+    const rx = w * 0.36, ry = Math.min(h * 0.14, 26);
+    ctx.save();
+    ctx.translate(hx, hy);
+    ctx.scale(1, ry / rx);
+    const soft = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    soft.addColorStop(0, 'rgba(255,255,255,0.85)');
+    soft.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+    soft.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = soft;
+    ctx.beginPath();
+    ctx.arc(0, 0, rx, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // small, sharp glint
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.ellipse(left + w * 0.3, yTop + Math.min(h * 0.11, 20), Math.max(4, w * 0.09), Math.max(2.5, Math.min(h * 0.035, 6)), -0.25, 0, Math.PI * 2);
+    ctx.fill();
     if (opts.fill) opts.fill(left, w);
     ctx.restore();
     // rim
