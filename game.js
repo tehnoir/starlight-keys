@@ -256,11 +256,44 @@
     return { tiles, rowsAt };
   }
 
+  // Community-made charts (charts.js) for Apple Music songs.
+  const SCROLL_RATE = { 0.75: 1.8, 1: 2.4, 1.3: 3.0 }; // rows per second
+  function chartFor(meta) { return (window.CHARTS || {})[meta.id] || null; }
+
+  // One tile per moment: keep the chart's rhythm, but pick a single lane from each chord and end
+  // holds before the next note, so it can always be played with one finger.
+  function buildNoteChart(chart, speed, duration) {
+    const rowSec = 1 / (SCROLL_RATE[speed] || 2.4);
+    const rowsAt = (t) => t / rowSec;
+    const notes = chart.notes.filter((n) => n[0] >= 0.2 && n[0] < duration - 0.5);
+    const tiles = [];
+    let prev = -1, prevT = -9;
+    for (let i = 0; i < notes.length; i++) {
+      const [t, keys] = notes[i];
+      const nextT = i + 1 < notes.length ? notes[i + 1][0] : duration - 0.3;
+      let pick = keys.find((k) => k[0] !== prev) || keys[0];
+      // the same lane twice in quick succession would overlap; move it across
+      if (pick[0] === prev && rowsAt(t - prevT) < 0.6) pick = [(prev + 2) % LANES, 0];
+      const lane = pick[0];
+      let end = pick[1] ? Math.min(pick[1], nextT - 0.08) : 0;
+      const hold = end - t >= 0.35;
+      const gapRows = rowsAt(nextT - t);
+      const len = hold ? rowsAt(end - t) : clamp(gapRows * 0.9, 0.2, 0.5);
+      tiles.push({ s: rowsAt(t), len, lane, midi: 0, hold, hit: false, hitAt: 0, prog: 0,
+                   voice: null, pid: null, off: 0, holdDone: false, missed: false });
+      prev = lane; prevT = t;
+    }
+    return { tiles, rowsAt };
+  }
+
   async function startMusicSong(meta) {
     Sound.unlock();
-    const { tiles, rowsAt } = buildBeatChart(meta, store.data.speed);
+    const chart = chartFor(meta);
+    const { tiles, rowsAt } = chart
+      ? buildNoteChart(chart, store.data.speed, meta.duration || chart.meta.duration)
+      : buildBeatChart(meta, store.data.speed);
     if (!tiles.length) return;
-    const song = { id: meta.id, title: meta.title, emoji: '🎧', hue: meta.hue, meta };
+    const song = { id: meta.id, title: meta.title, emoji: '🎧', hue: meta.hue, meta, credit: chart && chart.credit };
     G = {
       song, tiles, pos: rowsAt(0) - HIT_ROW, started: false, score: 0, hits: 0, nextIdx: 0,
       state: 'play', t: 0, relaxed: store.data.mode === 'relaxed', mult: 1,
@@ -336,7 +369,7 @@
     endAllHolds();
     G.state = 'paused';
     if (G.music) AM.player.pause();
-    $('#retapBtn').hidden = !G.music;
+    $('#retapBtn').hidden = !G.music || !!G.song.credit;
     $('#pauseSong').textContent = G.song.emoji + ' ' + G.song.title;
     $('#pause').hidden = false;
   }
@@ -1041,6 +1074,10 @@
       ctx.font = `600 ${Math.round(clamp(H * 0.025, 16, 26))}px ui-rounded, system-ui, sans-serif`;
       ctx.fillStyle = 'rgba(255,255,255,0.8)';
       ctx.fillText(G.song.meta.title + (G.song.meta.artist ? ' · ' + G.song.meta.artist : ''), W / 2, H * 0.45 + 56);
+      if (G.song.credit) {
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.fillText(`Chart by ${G.song.credit.author} on ${G.song.credit.source}`, W / 2, H * 0.45 + 92);
+      }
     }
     if (G.resumeT > 0) {
       ctx.font = `800 ${Math.round(clamp(H * 0.08, 48, 96))}px ui-rounded, system-ui, sans-serif`;
@@ -1158,12 +1195,15 @@
     const list = $('#amSongs');
     list.innerHTML = '';
     const songs = Object.values(store.data.am).sort((a, b) => (b.added || 0) - (a.added || 0));
+    for (const c of Object.values(window.CHARTS || {})) {
+      if (!store.data.am[c.meta.id]) songs.push(Object.assign({ hue: hueFor(c.meta.id) }, c.meta));
+    }
     for (const meta of songs) {
       const b = songCard(meta, 'song');
       const best = store.data.best[meta.id] || { stars: 0 };
       const st = document.createElement('div');
       st.className = 'meta';
-      st.innerHTML = `<span></span><span class="stars">${starHTML(best.stars)}</span>`;
+      st.innerHTML = `<span>${chartFor(meta) ? '🎼 Chart' : ''}</span><span class="stars">${starHTML(best.stars)}</span>`;
       b.querySelector('.info').appendChild(st);
       b.addEventListener('click', () => playAmSong(meta));
       list.appendChild(b);
@@ -1171,7 +1211,7 @@
   }
 
   function playAmSong(meta) {
-    if (meta.bpm) startMusicSong(meta);
+    if (meta.bpm || chartFor(meta)) startMusicSong(meta);
     else calibrate(meta);
   }
 
