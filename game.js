@@ -717,10 +717,10 @@
   // A glossy glass slab: drop shadow, visible thickness, glow, colour body, sheen, streaks and a bright rim.
   function drawGlassTile(lane, yTop, yBot, hue, opts = {}) {
     const d = depth(yBot);
-    const thick = 13 * d;
+    const thick = 18 * d;
     const r = 18 * d;
     const inset = 5;
-    const sat = opts.sat == null ? 95 : opts.sat;
+    const sat = opts.sat == null ? 100 : opts.sat;
     ctx.save();
     ctx.globalAlpha = opts.alpha == null ? 1 : opts.alpha;
     // drop shadow on the floor
@@ -735,17 +735,17 @@
     ctx.globalCompositeOperation = 'source-over';
     // thickness (the slab's front face, seen from slightly above)
     const side = ctx.createLinearGradient(0, yBot, 0, yBot + thick);
-    side.addColorStop(0, `hsl(${hue}, ${sat - 10}%, 30%)`);
-    side.addColorStop(1, `hsl(${hue}, ${sat - 20}%, 16%)`);
+    side.addColorStop(0, `hsl(${hue}, 100%, 28%)`);
+    side.addColorStop(1, `hsl(${hue}, 100%, 13%)`);
     ctx.fillStyle = side;
     tilePath(lane, yTop + thick, yBot + thick, inset, r);
     ctx.fill();
     // body
     const pts = tilePath(lane, yTop, yBot, inset, r);
     const body = ctx.createLinearGradient(0, yTop, 0, yBot);
-    body.addColorStop(0, `hsl(${hue}, ${sat}%, 70%)`);
-    body.addColorStop(0.4, `hsl(${hue}, ${sat}%, 56%)`);
-    body.addColorStop(1, `hsl(${hue + 10}, ${sat}%, 44%)`);
+    body.addColorStop(0, `hsl(${hue}, ${sat}%, 64%)`);
+    body.addColorStop(0.5, `hsl(${hue}, ${sat}%, 52%)`);
+    body.addColorStop(1, `hsl(${hue + 10}, ${sat}%, 40%)`);
     ctx.fillStyle = body;
     ctx.fill();
     // candy shading, clipped to the tile
@@ -753,68 +753,86 @@
     ctx.clip();
     const left = Math.min(pts[0][0], pts[3][0]), right = Math.max(pts[1][0], pts[2][0]);
     const w = right - left, h = yBot - yTop;
-    // curved top: darker toward the sides, lit across the middle
-    const curve = ctx.createLinearGradient(left, 0, right, 0);
-    curve.addColorStop(0, `hsla(${hue}, 80%, 18%, 0.55)`);
-    curve.addColorStop(0.22, `hsla(${hue}, 80%, 30%, 0.12)`);
-    curve.addColorStop(0.45, 'rgba(255,255,255,0.10)');
-    curve.addColorStop(0.75, `hsla(${hue}, 80%, 30%, 0.12)`);
-    curve.addColorStop(1, `hsla(${hue}, 80%, 18%, 0.6)`);
-    ctx.fillStyle = curve;
+    // deep dome: bright centre falling off to dark, saturated edges
+    const cx = left + w / 2, cy = yTop + h / 2;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, Math.max(1, h / w));
+    const dome = ctx.createRadialGradient(0, -w * 0.12, 0, 0, 0, w * 0.72);
+    dome.addColorStop(0, `hsla(${hue}, 100%, 82%, 0.45)`);
+    dome.addColorStop(0.45, `hsla(${hue}, 100%, 60%, 0)`);
+    dome.addColorStop(0.8, `hsla(${hue}, 100%, 25%, 0.35)`);
+    dome.addColorStop(1, `hsla(${hue}, 100%, 14%, 0.8)`);
+    ctx.fillStyle = dome;
+    ctx.fillRect(-w, -w, w * 2, w * 2);
+    ctx.restore();
+    // extra shading down the sides and across the ends
+    const sides = ctx.createLinearGradient(left, 0, right, 0);
+    sides.addColorStop(0, `hsla(${hue}, 100%, 10%, 0.85)`);
+    sides.addColorStop(0.1, `hsla(${hue}, 100%, 16%, 0.45)`);
+    sides.addColorStop(0.3, `hsla(${hue}, 100%, 22%, 0)`);
+    sides.addColorStop(0.7, `hsla(${hue}, 100%, 22%, 0)`);
+    sides.addColorStop(0.9, `hsla(${hue}, 100%, 16%, 0.5)`);
+    sides.addColorStop(1, `hsla(${hue}, 100%, 10%, 0.9)`);
+    ctx.fillStyle = sides;
     ctx.fillRect(left, yTop, w, h);
-    // rounded ends: shade the top and bottom edges too
-    const endH = Math.min(h * 0.3, 34);
+    const endH = Math.min(h * 0.32, 40);
     const ends = ctx.createLinearGradient(0, yTop, 0, yBot);
-    ends.addColorStop(0, `hsla(${hue}, 80%, 20%, 0.35)`);
-    ends.addColorStop(endH / h, `hsla(${hue}, 80%, 20%, 0)`);
-    ends.addColorStop(1 - endH / h, `hsla(${hue}, 80%, 20%, 0)`);
-    ends.addColorStop(1, `hsla(${hue}, 80%, 15%, 0.45)`);
+    ends.addColorStop(0, `hsla(${hue}, 100%, 15%, 0.45)`);
+    ends.addColorStop(endH / h, `hsla(${hue}, 100%, 15%, 0)`);
+    ends.addColorStop(1 - endH / h, `hsla(${hue}, 100%, 15%, 0)`);
+    ends.addColorStop(1, `hsla(${hue}, 100%, 10%, 0.6)`);
     ctx.fillStyle = ends;
     ctx.fillRect(left, yTop, w, h);
-    // glow from inside, like light through coloured sugar
-    const bx = left + w / 2, by = yBot - Math.min(h * 0.12, 18);
-    const bounce = ctx.createRadialGradient(bx, by, 0, bx, by, w * 0.6);
-    bounce.addColorStop(0, `hsla(${hue + 15}, 100%, 75%, 0.55)`);
-    bounce.addColorStop(1, `hsla(${hue + 15}, 100%, 75%, 0)`);
-    ctx.fillStyle = bounce;
-    ctx.fillRect(left, yTop, w, h);
-    // long gloss stripe down the left side
-    const sx = left + w * 0.17, sw = Math.max(3, w * 0.07);
-    const sTop = yTop + Math.min(h * 0.18, 30), sBot = yBot - Math.min(h * 0.2, 30);
-    if (sBot > sTop) {
+    // soft coloured glow rising from the bottom, like light through the candy
+    const by = yBot - Math.min(h * 0.08, 12);
+    ctx.save();
+    ctx.translate(cx, by);
+    ctx.scale(1, Math.min(h * 0.3, 50) / (w * 0.5));
+    const bg = ctx.createRadialGradient(0, 0, 0, 0, 0, w * 0.5);
+    bg.addColorStop(0, `hsla(${hue + 20}, 100%, 78%, 0.85)`);
+    bg.addColorStop(1, `hsla(${hue + 20}, 100%, 70%, 0)`);
+    ctx.fillStyle = bg;
+    ctx.fillRect(-w * 0.5, -w * 0.5, w, w * 0.5);
+    ctx.restore();
+    // big glossy highlight across the top
+    const hInset = w * 0.13;
+    const hTop = yTop + Math.min(h * 0.06, 10);
+    const hH = Math.min(h * 0.26, 46);
+    const hy = hTop + hH * 0.4, hry = hH * 0.5;
+    const hg = ctx.createLinearGradient(0, hTop, 0, hTop + hH);
+    hg.addColorStop(0, 'rgba(255,255,255,0.92)');
+    hg.addColorStop(0.55, 'rgba(255,255,255,0.45)');
+    hg.addColorStop(1, 'rgba(255,255,255,0.05)');
+    ctx.fillStyle = hg;
+    rr(left + hInset, hTop, w - hInset * 2, hH, hH / 2);
+    ctx.fill();
+    // sparkle dot
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(left + hInset + hry * 0.9, hy, Math.max(3, Math.min(w * 0.045, hry * 0.5)), 0, Math.PI * 2);
+    ctx.fill();
+    // thin gloss stripe down the left side
+    const sx = left + w * 0.12, sw = Math.max(2.5, w * 0.04);
+    const sTop = hy + hry, sBot = yBot - Math.min(h * 0.28, 40);
+    if (sBot - sTop > 10) {
       const stripe = ctx.createLinearGradient(0, sTop, 0, sBot);
-      stripe.addColorStop(0, 'rgba(255,255,255,0.55)');
-      stripe.addColorStop(1, 'rgba(255,255,255,0.05)');
+      stripe.addColorStop(0, 'rgba(255,255,255,0.5)');
+      stripe.addColorStop(1, 'rgba(255,255,255,0)');
       ctx.fillStyle = stripe;
       rr(sx, sTop, sw, sBot - sTop, sw / 2);
       ctx.fill();
     }
-    // soft, wide highlight near the top
-    const hx = left + w * 0.42, hy = yTop + Math.min(h * 0.16, 30);
-    const rx = w * 0.36, ry = Math.min(h * 0.14, 26);
-    ctx.save();
-    ctx.translate(hx, hy);
-    ctx.scale(1, ry / rx);
-    const soft = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-    soft.addColorStop(0, 'rgba(255,255,255,0.85)');
-    soft.addColorStop(0.5, 'rgba(255,255,255,0.35)');
-    soft.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = soft;
-    ctx.beginPath();
-    ctx.arc(0, 0, rx, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    // small, sharp glint
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.beginPath();
-    ctx.ellipse(left + w * 0.3, yTop + Math.min(h * 0.11, 20), Math.max(4, w * 0.09), Math.max(2.5, Math.min(h * 0.035, 6)), -0.25, 0, Math.PI * 2);
-    ctx.fill();
     if (opts.fill) opts.fill(left, w);
     ctx.restore();
-    // rim
+    // dark candy outline with a thin light inner rim
     tilePath(lane, yTop, yBot, inset, r);
+    ctx.lineWidth = 3.5;
+    ctx.strokeStyle = `hsl(${hue}, 90%, 16%)`;
+    ctx.stroke();
+    tilePath(lane, yTop + 3, yBot - 3, inset + 3, r - 3);
     ctx.lineWidth = 1.5;
-    ctx.strokeStyle = `hsla(${hue}, 100%, 92%, 0.9)`;
+    ctx.strokeStyle = `hsla(${hue}, 100%, 88%, 0.55)`;
     ctx.stroke();
     ctx.restore();
   }
