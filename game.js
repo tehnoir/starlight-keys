@@ -2,6 +2,7 @@
 (function () {
   const LANES = 4;
   const ROWS = 4; // tile rows visible on screen
+  const TILE_H = 0.5; // drawn height (in rows) of ordinary tiles; taps still count over the full row
   const HIT_ROW = 0.8; // the tap line sits this many rows above the bottom of the screen
   const KEY = 'starlightkeys.v1';
   const $ = (s) => document.querySelector(s);
@@ -447,9 +448,12 @@
     return clamp(Math.floor((fx - fieldX) / laneW), 0, LANES - 1);
   }
 
+  // Hold tiles show their full length; ordinary tiles are drawn shorter, sitting on their beat.
+  function visLen(t) { return t.hold ? t.len : Math.min(t.len, TILE_H); }
+
   function tileRect(t) {
     const yBottom = H - (t.s - G.pos) * rowH;
-    const h = t.len * rowH;
+    const h = visLen(t) * rowH;
     const mid = yBottom - h / 2;
     const x = laneEdgeX(t.lane, mid);
     return { x, y: yBottom - h, w: laneEdgeX(t.lane + 1, mid) - x, h };
@@ -839,7 +843,7 @@
 
   function drawTile(t, isNext) {
     const yBot = H - (t.s - G.pos) * rowH;
-    const yTop = yBot - t.len * rowH;
+    const yTop = yBot - visLen(t) * rowH;
     if (yTop > H + 20 || yBot < -20) return;
     const hue = LANE_HUES[t.lane];
 
