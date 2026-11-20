@@ -260,12 +260,16 @@
   const SCROLL_RATE = { 0.75: 1.8, 1: 2.4, 1.3: 3.0 }; // rows per second
   function chartFor(meta) { return (window.CHARTS || {})[meta.id] || null; }
 
+  // Auto-charts tag each note with a difficulty level (third element); slower speeds get fewer tiles.
+  const CHART_LEVEL = { 0.75: 0, 1: 1, 1.3: 2 };
+
   // One tile per moment: keep the chart's rhythm, but pick a single lane from each chord and end
   // holds before the next note, so it can always be played with one finger.
   function buildNoteChart(chart, speed, duration) {
     const rowSec = 1 / (SCROLL_RATE[speed] || 2.4);
     const rowsAt = (t) => t / rowSec;
-    const notes = chart.notes.filter((n) => n[0] >= 0.2 && n[0] < duration - 0.5);
+    const level = CHART_LEVEL[speed] ?? 1;
+    const notes = chart.notes.filter((n) => n[0] >= 0.2 && n[0] < duration - 0.5 && (n[2] || 0) <= level);
     const tiles = [];
     let prev = -1, prevT = -9;
     for (let i = 0; i < notes.length; i++) {
@@ -1076,7 +1080,7 @@
       ctx.fillText(G.song.meta.title + (G.song.meta.artist ? ' · ' + G.song.meta.artist : ''), W / 2, H * 0.45 + 56);
       if (G.song.credit) {
         ctx.fillStyle = 'rgba(255,255,255,0.55)';
-        ctx.fillText(`Chart by ${G.song.credit.author} on ${G.song.credit.source}`, W / 2, H * 0.45 + 92);
+        ctx.fillText(G.song.credit.text || `Chart by ${G.song.credit.author} on ${G.song.credit.source}`, W / 2, H * 0.45 + 92);
       }
     }
     if (G.resumeT > 0) {
